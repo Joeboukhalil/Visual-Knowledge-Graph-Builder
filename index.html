@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Knowledge Graph Builder</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: white;
+}
+
+header {
+  padding: 10px;
+  background: #f2f2f2;
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid #ccc;
+}
+
+button {
+  padding: 8px 12px;
+  border: none;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+button:hover {
+  background: #1e40af;
+}
+
+canvas {
+  display: block;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <button onclick="exportJSON()">Download JSON</button>
+  <button onclick="downloadImage()">Download PNG</button>
+</header>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight - 50;
+
+let nodes = [];
+let edges = [];
+let selectedNode = null;
+let draggingNode = null;
+
+function randomColor() {
+  const colors = ["#60a5fa","#f87171","#34d399","#fbbf24","#a78bfa","#fb923c"];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+class Node {
+  constructor(x, y, label) {
+    this.x = x;
+    this.y = y;
+    this.r = 30;
+    this.label = label;
+    this.id = Date.now() + Math.random();
+    this.color = randomColor();
+  }
+}
+
+class Edge {
+  constructor(from, to, label = "") {
+    this.from = from;
+    this.to = to;
+    this.label = label;
+  }
+}
+
+canvas.addEventListener("mousedown", e => {
+  const { offsetX, offsetY } = e;
+
+  for (let node of nodes) {
+    if (Math.hypot(node.x - offsetX, node.y - offsetY) < node.r) {
+      draggingNode = node;
+
+      if (!selectedNode) {
+        selectedNode = node;
+      } else if (selectedNode !== node) {
+        edges.push(new Edge(selectedNode.id, node.id));
+        selectedNode = null;
+      }
+      return;
+    }
+  }
+
+  for (let edge of edges) {
+    const a = nodes.find(n => n.id === edge.from);
+    const b = nodes.find(n => n.id === edge.to);
+    if (a && b && pointNearLine(offsetX, offsetY, a, b)) {
+      const text = prompt("Connection label:", edge.label);
+      if (text !== null) edge.label = text;
+      return;
+    }
+  }
+
+  const label = prompt("Node label:");
+  if (label) nodes.push(new Node(offsetX, offsetY, label));
+});
+
+canvas.addEventListener("mousemove", e => {
+  if (draggingNode) {
+    draggingNode.x = e.offsetX;
+    draggingNode.y = e.offsetY;
+  }
+});
+
+canvas.addEventListener("mouseup", () => draggingNode = null);
+
+function pointNearLine(px, py, a, b) {
+  const dist = Math.abs(
+    (b.y - a.y) * px - (b.x - a.x) * py + b.x * a.y - b.y * a.x
+  ) / Math.hypot(b.y - a.y, b.x - a.x);
+  return dist < 6;
+}
+
+function drawWrappedText(text, x, y, maxWidth) {
+  let words = text.split(" ");
+  let lines = [];
+  let line = "";
+
+  ctx.font = "14px Arial";
+  for (let w of words) {
+    let test = line + w + " ";
+    if (ctx.measureText(test).width > maxWidth && line !== "") {
+      lines.push(line);
+      line = w + " ";
+    } else {
+      line = test;
+    }
+  }
+  lines.push(line);
+
+  const lineHeight = 14;
+  const startY = y - ((lines.length - 1) * lineHeight) / 2;
+
+  lines.forEach((l, i) => {
+    ctx.fillText(l.trim(), x, startY + i * lineHeight);
+  });
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // edges
+  edges.forEach(edge => {
+    const a = nodes.find(n => n.id === edge.from);
+    const b = nodes.find(n => n.id === edge.to);
+    if (!a || !b) return;
+
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+
+    if (edge.label) {
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+
+      ctx.font = "14px Arial";
+      const textWidth = ctx.measureText(edge.label).width + 10;
+
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.fillRect(mx - textWidth / 2, my - 12, textWidth, 18);
+
+      ctx.fillStyle = "#666";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(edge.label, mx, my - 2);
+    }
+  });
+
+  // nodes
+  nodes.forEach(node => {
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+    ctx.fillStyle = node === selectedNode ? "#22c55e" : node.color;
+    ctx.fill();
+
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    drawWrappedText(node.label, node.x, node.y, node.r * 1.6);
+  });
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+
+function exportJSON() {
+  const data = { nodes, edges };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "knowledge-graph.json";
+  a.click();
+}
+
+function downloadImage() {
+  const link = document.createElement("a");
+  link.download = "knowledge-graph.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+</script>
+
+</body>
+</html>
